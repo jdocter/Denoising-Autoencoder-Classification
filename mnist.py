@@ -8,6 +8,7 @@ from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D
 from keras.layers import UpSampling2D
 from keras.optimizers import Adam
 from keras.losses import categorical_crossentropy
+from keras import regularizers
 from keras import backend as K
 
 from sklearn.metrics import classification_report
@@ -66,6 +67,24 @@ def create_model(regularized):
     else:
         return Model(inputs=visible, outputs=output)
 
+def create_model_simple(regularized):# add a Dense layer with a L1 activity regularizer
+    visible = Input(shape=input_shape)
+    encode = Dense(32, activation='relu',
+                activity_regularizer=regularizers.l1(10e-5))(visible)
+    flattened = Flatten()(encode)
+    output = Dense(num_classes, name='class', activation='softmax')(flattened)
+
+    decode = Dense(1, activation='sigmoid',name='reconstruction')(encode)
+    print(decode.shape)
+    if regularized:
+        return Model(inputs=visible, outputs=[output, decode])
+    else:
+        return Model(inputs=visible, outputs=output)
+
+
+
+
+
 def conditional_categorical_crossentropy(y_true, y_pred):
     loss = categorical_crossentropy(y_true, y_pred)
     # this loss functions gives zero loss when there is no label
@@ -75,8 +94,8 @@ def conditional_categorical_crossentropy(y_true, y_pred):
 def zero_loss(y_true, y_pred):
     return y_pred * 0
 
-def train_regularized_model(n_samples_train):
-    model = create_model(True)
+def train_regularized_model(n_samples_train,model_creator):
+    model = model_creator(True)
     model.summary()
 
     n = n_samples_train
@@ -127,8 +146,8 @@ def train_regularized_model(n_samples_train):
     show_image(x_train[3])
     show_image(example_output[1])
 
-def train_basic_model(n_samples_train):
-    model = create_model(False)
+def train_basic_model(n_samples_train,model_creator):
+    model = model_creator(False)
     model.summary()
 
     model.compile(loss='categorical_crossentropy',
@@ -156,6 +175,6 @@ def train_basic_model(n_samples_train):
 # x_test = x_test[:10000,:,:,:]
 # y_test = y_test[:10000,:]
 
-train_basic_model(30)
-train_regularized_model(30)
+train_basic_model(30,create_model_simple)
+train_regularized_model(30,create_model_simple)
 
