@@ -33,8 +33,8 @@ x_test /= 255
 
 input_shape = x_train[0].shape
 num_classes = 10
-batch_size = 128
-epochs = 25
+batch_size = 1
+epochs = 400
 
 np.random.seed(42)
 my_init = initializers.glorot_uniform(seed=42)
@@ -93,7 +93,7 @@ def train_regularized_model(n_samples_train):
     model.fit(x_train[n:n*25,:,:,:],
             [y_train_pruned[n:n*25], x_train[n:n*25,:,:,:]],
               batch_size=batch_size,
-              epochs=epochs,
+              epochs=50,
               verbose=1)
               # validation_data=(x_test, [y_test, x_test]))
 
@@ -104,7 +104,7 @@ def train_regularized_model(n_samples_train):
     model.compile(loss={'class' : 'categorical_crossentropy', 'reconstruction' : 'binary_crossentropy'},
                   optimizer=Adam(clipnorm = 1.),
                   metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
-                  loss_weights={'class' : 1, 'reconstruction' : 1})
+                  loss_weights={'class' : 1, 'reconstruction' : 0.0001})
 
     model.fit(x_train[0:n,:,:,:],
             [y_train_pruned[0:n], x_train[0:n,:,:,:]],
@@ -156,6 +156,6 @@ def train_basic_model(n_samples_train):
 # x_test = x_test[:10000,:,:,:]
 # y_test = y_test[:10000,:]
 
-train_basic_model(1000)
-train_regularized_model(1000)
+train_basic_model(30)
+train_regularized_model(30)
 
