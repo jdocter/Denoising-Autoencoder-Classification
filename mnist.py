@@ -10,181 +10,253 @@ from keras.optimizers import Adam
 from keras.losses import categorical_crossentropy
 from keras import regularizers
 from keras import backend as K
+from keras.models import model_from_json
 
 from sklearn.metrics import classification_report
 
 import matplotlib.pyplot as plt
 
-(x_train, y_train), (x_test, y_test) = mnist.load_data()
 
 def show_image(image):
     plt.imshow(image.reshape(28, 28), cmap='Greys')
     plt.show()
-# ===============================================================================
-# ===============================================================================
-# TODO corrects reshaping for simple model!!!! should be flattened essentially...
 
-# Reshaping the array to 4-dims so that it can work with the Keras API
-x_train = x_train.reshape(x_train.shape[0], 28, 28, 1)[:, :, :, :]
-x_test = x_test.reshape(x_test.shape[0], 28, 28, 1)
-input_shape = (28, 28, 1)
-# Making sure that the values are float so that we can get decimal points after division
-x_train = x_train.astype('float32')
-x_test = x_test.astype('float32')
-# Normalizing the RGB codes by dividing it to the max RGB value.
-x_train /= 255
-x_test /= 255
-
-input_shape = x_train[0].shape
-num_classes = 10
-batch_size = 1
-epochs = 400
-
-np.random.seed(42)
-my_init = initializers.glorot_uniform(seed=42)
-
-# convert class vectors to binary class matrices
-y_train = keras.utils.to_categorical(y_train, num_classes)
-y_test = keras.utils.to_categorical(y_test, num_classes)
-
-def create_model(regularized):
-    visible = Input(shape=input_shape)
-
-    encode = Conv2D(8, kernel_size=(3, 3), activation='relu', padding='same', kernel_initializer=my_init)(visible)
-    encode = MaxPooling2D(pool_size=(2, 2))(encode)
-    # encode = Dropout(0.25)(encode)
-    encode = Flatten()(encode)
-    encode = Dense(64, activation='relu')(encode)
-    # encode = Dropout(0.25)(encode)
-
-    output = Dense(num_classes, name='class', activation='softmax')(encode)
-
-    decode = Dense(1568, activation='relu')(encode)
-    decode = Reshape((14, 14, 8))(decode)
-    # decode = Dropout(0.25)(decode)
-    decode = UpSampling2D(size=(2, 2))(decode)
-    decode = Conv2D(1, kernel_size=(3, 3), activation='relu', padding='same', name='reconstruction', kernel_initializer=my_init)(decode)
-
-    if regularized:
-        return Model(inputs=visible, outputs=[output, decode])
-    else:
-        return Model(inputs=visible, outputs=output)
-
-def create_model_simple(regularized): # add a Dense layer with a L1 activity regularizer
-
-    visible = Input(shape=input_shape)
-    encode = Dense(32, activation='relu',
-                activity_regularizer=regularizers.l1(10e-5))(visible)
-    flattened = Flatten()(encode)
-
-    output = Dense(num_classes, name='class', activation='softmax')(flattened)
-
-    decode = Dense(1, activation='sigmoid',name='reconstruction')(encode)
-    print(decode.shape)
-    if regularized:
-        return Model(inputs=visible, outputs=[output, decode])
-    else:
-        return Model(inputs=visible, outputs=output)
+def save_model(model, name):
+    # serialize model to JSON
+    model_json = model.to_json()
+    with open(name+ "_arch.json", "w") as json_file:
+        json_file.write(model_json)
+    # serialize weights to HDF5
+    model.save_weights(name +"_weights.h5")
+    print("Saved model to disk")
 
 
+def load_model(name):
+    # load json and create model
+    json_file = open(name + "_arch.json", 'r')
+    loaded_model_json = json_file.read()
+    json_file.close()
+    loaded_model = model_from_json(loaded_model_json)
+    # load weights into new model
+    loaded_model.load_weights(model + "_weights.h5")
+    print("Loaded model from disk")
+
+class ASL:
+    def __init__(self, n_samples_train_unlabeled, n_samples_train_labeled, verbose=0):
+        (self.x_train, self.y_train), (self.x_test, self.y_test) = mnist.load_data()
+
+        self.n_labeled = n_samples_train_labeled
+        self.n_unlabeled = n_samples_train_unlabeled
+        self.verbose = verbose
+
+    def cnn_setup(self):
+        # Reshaping the array to 4-dims so that it can work with the Keras API
+        self.x_train = self.x_train.reshape(self.x_train.shape[0], 28, 28, 1)[:, :, :, :]
+        self.x_test = self.x_test.reshape(self.x_test.shape[0], 28, 28, 1)
+        self.input_shape = (28, 28, 1)
+        # Making sure that the values are float so that we can get decimal points after division
+        self.x_train = self.x_train.astype('float32')
+        self.x_test = self.x_test.astype('float32')
+        # Normalizing the RGB codes by dividing it to the max RGB value.
+        self.x_train /= 255
+        self.x_test /= 255
+
+        self.input_shape = self.x_train[0].shape
+        self.num_classes = 10
+        self.batch_size = 1
+        self.epochs = 20
+
+        np.random.seed(42)
+        self.my_init = initializers.glorot_uniform(seed=42)
+
+        # convert class vectors to binary class matrices
+        self.y_train = keras.utils.to_categorical(self.y_train, self.num_classes)
+        self.y_test = keras.utils.to_categorical(self.y_test, self.num_classes)
+
+
+        # train on n labeled data, rest unlabeled
+        y_train_pruned = np.copy(self.y_train)
+        y_train_pruned[self.n_labeled:,:] = 0
+
+        self.x_train_labeled = self.x_train[0:self.n_labeled,:,:,:]
+        self.y_train_pruned_labeled = y_train_pruned[0:self.n_labeled]
+        self.y_train_labeled = self.y_train[0:self.n_labeled,:]
+
+        self.x_train_unlabeled = self.x_train[self.n_labeled: self.n_labeled + self.n_unlabeled,:,:,:]
+        self.y_train_pruned_unlabeled = y_train_pruned[self.n_labeled: self.n_labeled + self.n_unlabeled]
+
+        self.model_creator = self.create_cnn_model
 
 
 
-def conditional_categorical_crossentropy(y_true, y_pred):
-    loss = categorical_crossentropy(y_true, y_pred)
-    # this loss functions gives zero loss when there is no label
-    # otherwise, categorical_crossentropy
-    return K.switch(K.flatten(K.equal(K.sum(y_true, axis=-1), 0.)), K.zeros_like(loss), loss)
+    def simple_setup(self):
 
-def zero_loss(y_true, y_pred):
-    return y_pred * 0
+        self.x_train = self.x_train.astype('float32') / 255.
+        self.x_test = self.x_test.astype('float32') / 255.
 
-def train_regularized_model(n_samples_train_labeled, n_samples_train_unlabeled,model_creator,verbose=1):
-    model = model_creator(True)
-    model.summary()
+        # flatten
+        self.x_train = self.x_train.reshape((len(self.x_train), np.prod(self.x_train.shape[1:])))
+        self.x_test = self.x_test.reshape((len(self.x_test), np.prod(self.x_test.shape[1:])))
 
-    ln = n_samples_train_labeled
-    un = n_samples_train_unlabeled
+        self.input_shape = self.x_train[0].shape
+        self.num_classes = 10
+        self.batch_size = 1
+        self.epochs = 30
 
-    # train model with n_samples_train labelled data, rest un-labelled
-    y_train_pruned = y_train
-    y_train_pruned[un:,:] = 0
+        # convert class vectors to binary class matrices
+        self.y_train = keras.utils.to_categorical(self.y_train, self.num_classes)
+        self.y_test = keras.utils.to_categorical(self.y_test, self.num_classes)
 
-    model.compile(loss={'class' : 'categorical_crossentropy', 'reconstruction' : 'binary_crossentropy'},
-                  optimizer=Adam(clipnorm = 1.),
-                  metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
-                  loss_weights={'class' : 0, 'reconstruction' : 1})
+        self.model_creator = self.create_simple_model
 
-    model.fit(x_train[ln:un+ln,:,:,:],
-            [y_train_pruned[ln:un+ln], x_train[ln:un+ln,:,:,:]],
-              batch_size=batch_size,
-              epochs=50,
-              verbose=verbose)
-              # validation_data=(x_test, [y_test, x_test]))
+        # train on n labeled data, rest unlabeled
+        y_train_pruned = np.copy(self.y_train)
+        y_train_pruned[self.n_labeled:,:] = 0
 
-    print("regularized model pure reconstruction: " + str(un) + " samples")
-    score = model.evaluate(x_test, [y_test, x_test], verbose=0)
-    for metric_name, value in zip(model.metrics_names, score):
-        print(metric_name + ":", value)
+        self.x_train_labeled = self.x_train[0:self.n_labeled,:]
+        self.y_train_pruned_labeled = y_train_pruned[0:self.n_labeled]
+        self.y_train_labeled = self.y_train[0:self.n_labeled,:]
 
-    model.compile(loss={'class' : 'categorical_crossentropy', 'reconstruction' : 'binary_crossentropy'},
-                  optimizer=Adam(clipnorm = 1.),
-                  metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
-                  loss_weights={'class' : 1, 'reconstruction' : 0.0001})
-
-    model.fit(x_train[0:un,:,:,:],
-            [y_train_pruned[0:un], x_train[0:un,:,:,:]],
-              batch_size=batch_size,
-              epochs=epochs,
-              verbose=verbose)
-              # validation_data=(x_test, [y_test, x_test]))
-
-    predictions = model.predict(x_test)[0]
-    pred_class = [np.argmax(p) for p in predictions]
-    true_class = [np.argmax(p) for p in y_test]
-    
-    print("regularized model with labels: " + str(un) + " unlabeled " + str(ln) + " labeled")
-    print(classification_report(true_class, pred_class))
-
-    score = model.evaluate(x_test, [y_test, x_test], verbose=verbose)
-    for metric_name, value in zip(model.metrics_names, score):
-        print(metric_name + ":", value)
-
-    example_output = model.predict(x_train[3:4,:,:,:])
-    show_image(x_train[3])
-    show_image(example_output[1])
-
-def train_basic_model(n_samples_train,model_creator,verbose=1):
-    model = model_creator(False)
-    model.summary()
-
-    model.compile(loss='categorical_crossentropy',
-                  optimizer=keras.optimizers.Adadelta(),
-                  metrics=['accuracy'])
-
-    model.fit(x_train[:n_samples_train,:,:,:],
-              y_train[:n_samples_train,:],
-              batch_size=batch_size,
-              epochs=epochs,
-              verbose=verbose)
-              # validation_data=(x_test, y_test))
-
-    predictions = model.predict(x_test)
-    pred_class = [np.argmax(p) for p in predictions]
-    true_class = [np.argmax(p) for p in y_test]
-
-    print("basic model: " + str(n_samples_train) + " samples")
-    print(classification_report(true_class, pred_class))
-
-    score = model.evaluate(x_test, y_test, verbose=0)
-    for metric_name, value in zip(model.metrics_names, score):
-        print(metric_name + ":", value)
+        self.x_train_unlabeled = self.x_train[self.n_labeled: self.n_labeled + self.n_unlabeled,:]
+        self.y_train_pruned_unlabeled = y_train_pruned[self.n_labeled: self.n_labeled + self.n_unlabeled]
 
 
-# x_test = x_test[:10000,:,:,:]
-# y_test = y_test[:10000,:]
+        self.model_creator = self.create_simple_model
 
 
-train_basic_model(30,create_model_simple,0)
-train_regularized_model(30,1000,create_model_simple,0)
 
+
+
+    def create_cnn_model(self, regularized):
+        visible = Input(shape=self.input_shape)
+
+        encode = Conv2D(8, kernel_size=(3, 3), activation='relu', padding='same', kernel_initializer=self.my_init)(visible)
+        encode = MaxPooling2D(pool_size=(2, 2))(encode)
+        # encode = Dropout(0.25)(encode)
+        encode = Flatten()(encode)
+        encode = Dense(64, activation='relu')(encode)
+        # encode = Dropout(0.25)(encode)
+
+        output = Dense(self.num_classes, name='class', activation='softmax')(encode)
+
+        decode = Dense(1568, activation='relu')(encode)
+        decode = Reshape((14, 14, 8))(decode)
+        # decode = Dropout(0.25)(decode)
+        decode = UpSampling2D(size=(2, 2))(decode)
+        decode = Conv2D(1, kernel_size=(3, 3), activation='relu', padding='same', name='reconstruction', kernel_initializer=self.my_init)(decode)
+
+        if regularized:
+            return Model(inputs=visible, outputs=[output, decode])
+        else:
+            return Model(inputs=visible, outputs=output)
+
+    def create_simple_model(self, regularized): # add a Dense layer with a L1 activity regularizer
+
+        visible = Input(shape=self.input_shape)
+        encode = Dense(32, activation='relu',
+                    activity_regularizer=regularizers.l1(10e-5))(visible)
+
+        output = Dense(self.num_classes, name='class', activation='softmax')(encode)
+
+        decode = Dense(784, activation='sigmoid',name='reconstruction')(encode)
+
+        if regularized:
+            return Model(inputs=visible, outputs=[output, decode])
+        else:
+            return Model(inputs=visible, outputs=output)
+
+
+    def conditional_categorical_crossentropy(self, y_true, y_pred):
+        loss = categorical_crossentropy(y_true, y_pred)
+        # this loss functions gives zero loss when there is no label
+        # otherwise, categorical_crossentropy
+        return K.switch(K.flatten(K.equal(K.sum(y_true, axis=-1), 0.)), K.zeros_like(loss), loss)
+
+    def zero_loss(self, y_true, y_pred):
+        return y_pred * 0
+
+    def train_regularized_model(self):
+        model = self.model_creator(True)
+        model.summary()
+
+
+        model.compile(loss={'class' : 'categorical_crossentropy', 'reconstruction' : 'binary_crossentropy'},
+                      optimizer=Adam(clipnorm = 1.),
+                      metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
+                      loss_weights={'class' : 0, 'reconstruction' : 1})
+
+        model.fit(np.copy(self.x_train_unlabeled),
+                [np.copy(self.y_train_pruned_unlabeled), np.copy(self.x_train_unlabeled)],
+                  batch_size=self.batch_size,
+                  epochs=50,
+                  verbose=self.verbose)
+                  # validation_data=(x_test, [y_test, x_test]))
+
+        print("regularized model pure reconstruction: " + str(self.n_unlabeled) + " samples")
+        score = model.evaluate(self.x_test, [self.y_test, self.x_test], verbose=0)
+        for metric_name, value in zip(model.metrics_names, score):
+            print(metric_name + ":", value)
+
+        model.compile(loss={'class' : 'categorical_crossentropy', 'reconstruction' : 'binary_crossentropy'},
+                      optimizer=Adam(clipnorm = 1.),
+                      metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
+                      loss_weights={'class' : 1, 'reconstruction' : 0.0001})
+
+        model.fit(np.copy(self.x_train_labeled),
+                [np.copy(self.y_train_pruned_labeled), np.copy(self.x_train_labeled)],
+                  batch_size=self.batch_size,
+                  epochs=self.epochs,
+                  verbose=self.verbose)
+                  # validation_data=(x_test, [y_test, x_test]))
+
+        predictions = model.predict(self.x_test)[0]
+        pred_class = [np.argmax(p) for p in predictions]
+        true_class = [np.argmax(p) for p in self.y_test]
+
+        print("regularized model with labels: " + str(self.n_unlabeled) + " unlabeled " + str(self.n_labeled) + " labeled")
+        print(classification_report(true_class, pred_class))
+
+        score = model.evaluate(self.x_test, [self.y_test, self.x_test], verbose=self.verbose)
+        for metric_name, value in zip(model.metrics_names, score):
+            print(metric_name + ":", value)
+
+        example_output = model.predict(self.x_train[3:4])
+        show_image(self.x_train[3])
+        show_image(example_output[1])
+
+    def train_basic_model(self):
+        model = self.model_creator(False)
+        model.summary()
+
+        model.compile(loss='categorical_crossentropy',
+                      optimizer=keras.optimizers.Adadelta(),
+                      metrics=['accuracy'])
+
+        model.fit(np.copy(self.x_train_labeled),
+                  np.copy(self.y_train_labeled),
+                  batch_size=self.batch_size,
+                  epochs=self.epochs,
+                  verbose=self.verbose)
+                  # validation_data=(x_test, y_test))
+
+        predictions = model.predict(self.x_test)
+        pred_class = [np.argmax(p) for p in predictions]
+        true_class = [np.argmax(p) for p in self.y_test]
+
+        print("basic model: " + str(self.n_labeled) + " samples")
+        print(classification_report(true_class, pred_class))
+
+        score = model.evaluate(self.x_test, self.y_test, verbose=0)
+        for metric_name, value in zip(model.metrics_names, score):
+            print(metric_name + ":", value)
+
+
+    # x_test = x_test[:10000,:,:,:]
+    # y_test = y_test[:10000,:]
+
+
+
+asl = ASL(30, 30)
+asl.simple_setup()
+asl.train_basic_model()
+asl.train_regularized_model()
