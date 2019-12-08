@@ -20,6 +20,9 @@ import matplotlib.pyplot as plt
 def show_image(image):
     plt.imshow(image.reshape(28, 28), cmap='Greys')
     plt.show()
+# ===============================================================================
+# ===============================================================================
+# TODO corrects reshaping for simple model!!!! should be flattened essentially...
 
 # Reshaping the array to 4-dims so that it can work with the Keras API
 x_train = x_train.reshape(x_train.shape[0], 28, 28, 1)[:, :, :, :]
@@ -67,11 +70,13 @@ def create_model(regularized):
     else:
         return Model(inputs=visible, outputs=output)
 
-def create_model_simple(regularized):# add a Dense layer with a L1 activity regularizer
+def create_model_simple(regularized): # add a Dense layer with a L1 activity regularizer
+
     visible = Input(shape=input_shape)
     encode = Dense(32, activation='relu',
                 activity_regularizer=regularizers.l1(10e-5))(visible)
     flattened = Flatten()(encode)
+
     output = Dense(num_classes, name='class', activation='softmax')(flattened)
 
     decode = Dense(1, activation='sigmoid',name='reconstruction')(encode)
@@ -94,28 +99,30 @@ def conditional_categorical_crossentropy(y_true, y_pred):
 def zero_loss(y_true, y_pred):
     return y_pred * 0
 
-def train_regularized_model(n_samples_train,model_creator):
+def train_regularized_model(n_samples_train_labeled, n_samples_train_unlabeled,model_creator,verbose=1):
     model = model_creator(True)
     model.summary()
 
-    n = n_samples_train
+    ln = n_samples_train_labeled
+    un = n_samples_train_unlabeled
 
     # train model with n_samples_train labelled data, rest un-labelled
     y_train_pruned = y_train
-    y_train_pruned[n:,:] = 0
+    y_train_pruned[un:,:] = 0
 
     model.compile(loss={'class' : 'categorical_crossentropy', 'reconstruction' : 'binary_crossentropy'},
                   optimizer=Adam(clipnorm = 1.),
                   metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
                   loss_weights={'class' : 0, 'reconstruction' : 1})
 
-    model.fit(x_train[n:n*25,:,:,:],
-            [y_train_pruned[n:n*25], x_train[n:n*25,:,:,:]],
+    model.fit(x_train[ln:un+ln,:,:,:],
+            [y_train_pruned[ln:un+ln], x_train[ln:un+ln,:,:,:]],
               batch_size=batch_size,
               epochs=50,
-              verbose=1)
+              verbose=verbose)
               # validation_data=(x_test, [y_test, x_test]))
 
+    print("regularized model pure reconstruction: " + str(un) + " samples")
     score = model.evaluate(x_test, [y_test, x_test], verbose=0)
     for metric_name, value in zip(model.metrics_names, score):
         print(metric_name + ":", value)
@@ -125,20 +132,21 @@ def train_regularized_model(n_samples_train,model_creator):
                   metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
                   loss_weights={'class' : 1, 'reconstruction' : 0.0001})
 
-    model.fit(x_train[0:n,:,:,:],
-            [y_train_pruned[0:n], x_train[0:n,:,:,:]],
+    model.fit(x_train[0:un,:,:,:],
+            [y_train_pruned[0:un], x_train[0:un,:,:,:]],
               batch_size=batch_size,
               epochs=epochs,
-              verbose=1)
+              verbose=verbose)
               # validation_data=(x_test, [y_test, x_test]))
 
     predictions = model.predict(x_test)[0]
     pred_class = [np.argmax(p) for p in predictions]
     true_class = [np.argmax(p) for p in y_test]
-
+    
+    print("regularized model with labels: " + str(un) + " unlabeled " + str(ln) + " labeled")
     print(classification_report(true_class, pred_class))
 
-    score = model.evaluate(x_test, [y_test, x_test], verbose=0)
+    score = model.evaluate(x_test, [y_test, x_test], verbose=verbose)
     for metric_name, value in zip(model.metrics_names, score):
         print(metric_name + ":", value)
 
@@ -146,7 +154,7 @@ def train_regularized_model(n_samples_train,model_creator):
     show_image(x_train[3])
     show_image(example_output[1])
 
-def train_basic_model(n_samples_train,model_creator):
+def train_basic_model(n_samples_train,model_creator,verbose=1):
     model = model_creator(False)
     model.summary()
 
@@ -158,13 +166,14 @@ def train_basic_model(n_samples_train,model_creator):
               y_train[:n_samples_train,:],
               batch_size=batch_size,
               epochs=epochs,
-              verbose=1)
+              verbose=verbose)
               # validation_data=(x_test, y_test))
 
     predictions = model.predict(x_test)
     pred_class = [np.argmax(p) for p in predictions]
     true_class = [np.argmax(p) for p in y_test]
 
+    print("basic model: " + str(n_samples_train) + " samples")
     print(classification_report(true_class, pred_class))
 
     score = model.evaluate(x_test, y_test, verbose=0)
@@ -175,6 +184,7 @@ def train_basic_model(n_samples_train,model_creator):
 # x_test = x_test[:10000,:,:,:]
 # y_test = y_test[:10000,:]
 
-train_basic_model(30,create_model_simple)
-train_regularized_model(30,create_model_simple)
+
+train_basic_model(30,create_model_simple,0)
+train_regularized_model(30,1000,create_model_simple,0)
 
