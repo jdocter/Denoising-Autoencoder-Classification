@@ -9,4 +9,5 @@ pip install sklearn
 pip install matplotlib
 pip install tensorflow
 pip install keras
+pip install keras-tqdm
 ```

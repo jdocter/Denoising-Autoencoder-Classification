@@ -11,6 +11,7 @@ from keras.losses import categorical_crossentropy
 from keras import regularizers
 from keras import backend as K
 from keras.models import model_from_json
+from keras_tqdm import TQDMCallback
 
 from sklearn.metrics import classification_report
 
@@ -21,28 +22,42 @@ def show_image(image):
     plt.imshow(image.reshape(28, 28), cmap='Greys')
     plt.show()
 
+def save_results(description, n_labeled, class_acc, n_unlabeled=None, reg_acc = None):
+    with open("results.csv",'a') as results:
+        results.write("{}, {}, {}, {}, {}\n".format(description,n_labeled, class_acc, n_unlabeled, reg_acc))
+
+
 def save_model(model, name):
     # serialize model to JSON
     model_json = model.to_json()
-    with open(name+ "_arch.json", "w") as json_file:
+    with open("models/" +name+ "_arch.json", "w") as json_file:
         json_file.write(model_json)
     # serialize weights to HDF5
-    model.save_weights(name +"_weights.h5")
+    model.save_weights("models/" +name +"_weights.h5")
     print("Saved model to disk")
 
 
 def load_model(name):
     # load json and create model
-    json_file = open(name + "_arch.json", 'r')
+    json_file = open("models/" + name + "_arch.json", 'r')
     loaded_model_json = json_file.read()
     json_file.close()
     loaded_model = model_from_json(loaded_model_json)
     # load weights into new model
-    loaded_model.load_weights(model + "_weights.h5")
+    loaded_model.load_weights("models/" +name + "_weights.h5")
     print("Loaded model from disk")
+    return loaded_model
+
+
 
 class ASL:
-    def __init__(self, n_samples_train_unlabeled, n_samples_train_labeled, verbose=0):
+    """
+        Autoencoder supervised learning class
+        initialize class with number of labeled and unlabeled
+        must call cnn_setup() or simple_setup() before any training
+    """
+
+    def __init__(self, n_samples_train_labeled, n_samples_train_unlabeled, verbose=0):
         (self.x_train, self.y_train), (self.x_test, self.y_test) = mnist.load_data()
 
         self.n_labeled = n_samples_train_labeled
@@ -64,7 +79,7 @@ class ASL:
         self.input_shape = self.x_train[0].shape
         self.num_classes = 10
         self.batch_size = 1
-        self.epochs = 20
+        self.epochs = 50
 
         np.random.seed(42)
         self.my_init = initializers.glorot_uniform(seed=42)
@@ -90,6 +105,7 @@ class ASL:
 
 
     def simple_setup(self):
+        """ data setup for simple single later autoencoder """
 
         self.x_train = self.x_train.astype('float32') / 255.
         self.x_test = self.x_test.astype('float32') / 255.
@@ -100,8 +116,8 @@ class ASL:
 
         self.input_shape = self.x_train[0].shape
         self.num_classes = 10
-        self.batch_size = 1
-        self.epochs = 30
+        self.batch_size = 20
+        self.epochs = 10000
 
         # convert class vectors to binary class matrices
         self.y_train = keras.utils.to_categorical(self.y_train, self.num_classes)
@@ -122,9 +138,6 @@ class ASL:
 
 
         self.model_creator = self.create_simple_model
-
-
-
 
 
     def create_cnn_model(self, regularized):
@@ -153,7 +166,7 @@ class ASL:
     def create_simple_model(self, regularized): # add a Dense layer with a L1 activity regularizer
 
         visible = Input(shape=self.input_shape)
-        encode = Dense(32, activation='relu',
+        encode = Dense(64, activation='relu',
                     activity_regularizer=regularizers.l1(10e-5))(visible)
 
         output = Dense(self.num_classes, name='class', activation='softmax')(encode)
@@ -189,7 +202,8 @@ class ASL:
                 [np.copy(self.y_train_pruned_unlabeled), np.copy(self.x_train_unlabeled)],
                   batch_size=self.batch_size,
                   epochs=50,
-                  verbose=self.verbose)
+                  verbose=self.verbose,
+                  callbacks=[TQDMCallback()])
                   # validation_data=(x_test, [y_test, x_test]))
 
         print("regularized model pure reconstruction: " + str(self.n_unlabeled) + " samples")
@@ -206,13 +220,15 @@ class ASL:
                 [np.copy(self.y_train_pruned_labeled), np.copy(self.x_train_labeled)],
                   batch_size=self.batch_size,
                   epochs=self.epochs,
-                  verbose=self.verbose)
+                  verbose=self.verbose,
+                  callbacks=[TQDMCallback()])
                   # validation_data=(x_test, [y_test, x_test]))
 
         predictions = model.predict(self.x_test)[0]
         pred_class = [np.argmax(p) for p in predictions]
         true_class = [np.argmax(p) for p in self.y_test]
 
+        print("\n\n==========================================================")
         print("regularized model with labels: " + str(self.n_unlabeled) + " unlabeled " + str(self.n_labeled) + " labeled")
         print(classification_report(true_class, pred_class))
 
@@ -223,6 +239,10 @@ class ASL:
         example_output = model.predict(self.x_train[3:4])
         show_image(self.x_train[3])
         show_image(example_output[1])
+
+        save_model(model,"regularized_"+str(self.n_labeled)+"labels")
+        save_results("regularized",self.n_labeled, score[3], self.n_unlabeled, score[4])
+
 
     def train_basic_model(self):
         model = self.model_creator(False)
@@ -236,13 +256,16 @@ class ASL:
                   np.copy(self.y_train_labeled),
                   batch_size=self.batch_size,
                   epochs=self.epochs,
-                  verbose=self.verbose)
+                  verbose=self.verbose,
+                  callbacks=[TQDMCallback()])
                   # validation_data=(x_test, y_test))
 
         predictions = model.predict(self.x_test)
         pred_class = [np.argmax(p) for p in predictions]
         true_class = [np.argmax(p) for p in self.y_test]
 
+
+        print("\n\n==========================================================")
         print("basic model: " + str(self.n_labeled) + " samples")
         print(classification_report(true_class, pred_class))
 
@@ -250,13 +273,40 @@ class ASL:
         for metric_name, value in zip(model.metrics_names, score):
             print(metric_name + ":", value)
 
+        save_model(model,"unregularized_"+str(self.n_labeled) +"labels")
+        save_results("unregularized",self.n_labeled, score[1])
+
+    def train_autoencoder(self):
+        """ trains autoencoder only for entire training set """
+
+        model = self.model_creator(True)
+        model.summary()
+
+
+        model.compile(loss={'class' : 'categorical_crossentropy', 'reconstruction' : 'binary_crossentropy'},
+                      optimizer=Adam(clipnorm = 1.),
+                      metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
+                      loss_weights={'class' : 0, 'reconstruction' : 1})
+
+        model.fit(self.x_train,
+                [self.y_train, self.x_train],
+                  batch_size=256,
+                  epochs=50,
+                  verbose=self.verbose,
+                  callbacks=[TQDMCallback()])
+                  # validation_data=(x_test, [y_test, x_test]))
+
+        print("autoencoder: 60000 samples")
+        score = model.evaluate(self.x_test, [self.y_test, self.x_test], verbose=0)
+        for metric_name, value in zip(model.metrics_names, score):
+            print(metric_name + ":", value)
+
+        save_model(model,"autoencoder_60000")
 
     # x_test = x_test[:10000,:,:,:]
     # y_test = y_test[:10000,:]
 
-
-
-asl = ASL(30, 30)
+asl = ASL(100,500)
 asl.simple_setup()
-asl.train_basic_model()
+# asl.train_basic_model()
 asl.train_regularized_model()
