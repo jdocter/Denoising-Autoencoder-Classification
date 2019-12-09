@@ -116,8 +116,10 @@ class ASL:
 
         self.input_shape = self.x_train[0].shape
         self.num_classes = 10
-        self.batch_size = 20
-        self.epochs = 10000
+        self.regularized_batch_size = 20
+        self.basic_batch_size = 20
+        self.epochs = 15
+        self.verbose=1
 
         # convert class vectors to binary class matrices
         self.y_train = keras.utils.to_categorical(self.y_train, self.num_classes)
@@ -136,6 +138,11 @@ class ASL:
         self.x_train_unlabeled = self.x_train[self.n_labeled: self.n_labeled + self.n_unlabeled,:]
         self.y_train_pruned_unlabeled = y_train_pruned[self.n_labeled: self.n_labeled + self.n_unlabeled]
 
+        random_ordering = np.random.permutation(self.n_labeled + self.n_unlabeled)
+        self.x_train_all_shuffled = np.concatenate(
+                (self.x_train_labeled, self.x_train_unlabeled))[random_ordering]
+        self.y_train_all_shuffled = np.concatenate(
+                (self.y_train_labeled, self.y_train_pruned_unlabeled))[random_ordering]
 
         self.model_creator = self.create_simple_model
 
@@ -168,10 +175,14 @@ class ASL:
         visible = Input(shape=self.input_shape)
         encode = Dense(64, activation='relu',
                     activity_regularizer=regularizers.l1(10e-5))(visible)
+        encode = Dense(16, activation='relu',
+                    activity_regularizer=regularizers.l1(10e-5))(encode)
 
         output = Dense(self.num_classes, name='class', activation='softmax')(encode)
 
-        decode = Dense(784, activation='sigmoid',name='reconstruction')(encode)
+        decode = Dense(64, activation='relu',
+                    activity_regularizer=regularizers.l1(10e-5))(encode)
+        decode = Dense(784, activation='sigmoid',name='reconstruction')(decode)
 
         if regularized:
             return Model(inputs=visible, outputs=[output, decode])
@@ -192,37 +203,18 @@ class ASL:
         model = self.model_creator(True)
         model.summary()
 
-
-        model.compile(loss={'class' : 'categorical_crossentropy', 'reconstruction' : 'binary_crossentropy'},
+        model.compile(loss={'class' : self.conditional_categorical_crossentropy, 'reconstruction' : 'binary_crossentropy'},
                       optimizer=Adam(clipnorm = 1.),
                       metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
-                      loss_weights={'class' : 0, 'reconstruction' : 1})
+                      loss_weights={'class' : 1, 'reconstruction' : 1})
 
-        model.fit(np.copy(self.x_train_unlabeled),
-                [np.copy(self.y_train_pruned_unlabeled), np.copy(self.x_train_unlabeled)],
-                  batch_size=self.batch_size,
-                  epochs=50,
-                  verbose=self.verbose,
-                  callbacks=[TQDMCallback()])
-                  # validation_data=(x_test, [y_test, x_test]))
-
-        print("regularized model pure reconstruction: " + str(self.n_unlabeled) + " samples")
-        score = model.evaluate(self.x_test, [self.y_test, self.x_test], verbose=0)
-        for metric_name, value in zip(model.metrics_names, score):
-            print(metric_name + ":", value)
-
-        model.compile(loss={'class' : 'categorical_crossentropy', 'reconstruction' : 'binary_crossentropy'},
-                      optimizer=Adam(clipnorm = 1.),
-                      metrics={'class' : 'accuracy', 'reconstruction' : 'accuracy'},
-                      loss_weights={'class' : 1, 'reconstruction' : 0.0001})
-
-        model.fit(np.copy(self.x_train_labeled),
-                [np.copy(self.y_train_pruned_labeled), np.copy(self.x_train_labeled)],
-                  batch_size=self.batch_size,
+        model.fit(np.copy(self.x_train_all_shuffled),
+                  [np.copy(self.y_train_all_shuffled), np.copy(self.x_train_all_shuffled)],
+                  batch_size=self.regularized_batch_size,
                   epochs=self.epochs,
                   verbose=self.verbose,
-                  callbacks=[TQDMCallback()])
-                  # validation_data=(x_test, [y_test, x_test]))
+                  validation_data=(self.x_test, [self.y_test, self.x_test]))
+                  #callbacks=[TQDMCallback()])
 
         predictions = model.predict(self.x_test)[0]
         pred_class = [np.argmax(p) for p in predictions]
@@ -254,11 +246,11 @@ class ASL:
 
         model.fit(np.copy(self.x_train_labeled),
                   np.copy(self.y_train_labeled),
-                  batch_size=self.batch_size,
+                  batch_size=self.basic_batch_size,
                   epochs=self.epochs,
                   verbose=self.verbose,
-                  callbacks=[TQDMCallback()])
-                  # validation_data=(x_test, y_test))
+                  validation_data=(self.x_test, self.y_test))
+                  #callbacks=[TQDMCallback()]))
 
         predictions = model.predict(self.x_test)
         pred_class = [np.argmax(p) for p in predictions]
@@ -306,7 +298,7 @@ class ASL:
     # x_test = x_test[:10000,:,:,:]
     # y_test = y_test[:10000,:]
 
-asl = ASL(100,500)
+asl = ASL(1000,1000)
 asl.simple_setup()
-# asl.train_basic_model()
+asl.train_basic_model()
 asl.train_regularized_model()
