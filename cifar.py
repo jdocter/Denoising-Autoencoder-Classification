@@ -18,8 +18,8 @@ import matplotlib.pyplot as plt
 import json
 
 def show_image(image):
+    plt.figure()
     plt.imshow(image.reshape(32, 32, 3), cmap='Greys')
-    plt.show()
 
 def save_results(description, n_labeled, class_acc, n_unlabeled=None, reg_acc = None):
     with open("results.csv",'a') as results:
@@ -45,7 +45,6 @@ def load_model(name):
     print("Loaded model from disk")
     return loaded_model
 
-
 def save_model_with_history(model, history_dict, name):
     save_model(model, name)
     json.dump(history_dict, open("models/" + name + "_history.json", 'w'))
@@ -61,6 +60,45 @@ def add_noise(x_list, noise_type):
     elif noise_type == 'blackout':
         x_list *= np.stack([np.random.uniform(size=(x_list.shape[:-1])) < 0.3]*3, axis=3)
 
+def plot_history(history, dual, model_name):
+    print(history.keys())
+    if dual:
+        fig, axs = plt.subplots(1, 3)
+        axs[0].set_title("{}: reconstruction error over time".format(model_name))
+        axs[0].plot(history['reconstruction_mean_squared_error'])
+        axs[0].plot(history['val_reconstruction_mean_squared_error'])
+        axs[0].legend(['train_reconstruction_mse', 'val_reconstruction_mse'], loc='upper right')
+        axs[0].set(xlabel='epoch', ylabel='error')
+
+        axs[1].figure()
+        axs[1].set_title("{}: classification loss over time".format(model_name))
+        axs[1].plot(history['loss'])
+        axs[1].plot(history['val_loss'])
+        axs[1].legend(['train_loss', 'val_loss'], loc='upper right')
+        axs[1].set(xlabel='epoch', ylabel='accuracy')
+
+        axs[2].figure()
+        axs[2].set_title("{}: classification error over time".format(model_name))
+        axs[2].plot(history['class_acc'])
+        axs[2].plot(history['val_class_acc'])
+        axs[2].legend(['train_accuracy', 'val_accuracy'], loc='upper right')
+        axs[2].set(xlabel='epoch', ylabel='accuracy')
+    else:
+        plt.figure()
+        plt.title("{}: classification loss over time".format(model_name))
+        plt.plot(history['acc'])
+        plt.plot(history['val_acc'])
+        plt.legend(['train_accuracy', 'val_accuracy'], loc='upper right')
+        plt.ylabel('accuracy')
+        plt.xlabel('epoch')
+
+        plt.figure()
+        plt.title("{}: classification error over time".format(model_name))
+        plt.plot(history['acc'])
+        plt.plot(history['val_acc'])
+        plt.legend(['train_accuracy', 'val_accuracy'], loc='upper right')
+        plt.ylabel('accuracy')
+        plt.xlabel('epoch')
 
 class ASL:
     """
@@ -358,6 +396,8 @@ class ASL:
         show_image(self.x_test_noisy[3])
         show_image(example_output[1])
 
+        plot_history(history, True, model_name)
+
     def test_basic(self, model_name):
         # Tests a model with two outputs (sometimes called with a denoiser, so no classifications)
         model, history = load_model_with_history(model_name)
@@ -378,6 +418,8 @@ class ASL:
         score = model.evaluate(self.x_test_noisy, self.y_test, verbose=0)
         for metric_name, value in zip(model.metrics_names, score):
             print(metric_name + ":", value)
+
+        plot_history(history, False, model_name)
 
     # x_test = x_test[:10000,:,:,:]
     # y_test = y_test[:10000,:]
@@ -421,26 +463,26 @@ def blackout_cnn_run_experiment():
 
 def view_result(noise_type, n_train_samples, architecture):
     """ Generates fully-connected models which demonstrate improvement for salt and pepper noise """
-    for n_train_samples in (10000,):
-        print("{} {} experiment with {} labeled training samples".format(noise_type, architecture, n_train_samples))
-        asl = ASL(n_samples_train_labeled=n_train_samples, noise_type=noise_type)
+    print("{} {} experiment with {} labeled training samples".format(noise_type, architecture, n_train_samples))
+    asl = ASL(n_samples_train_labeled=n_train_samples, noise_type=noise_type)
 
-        if architecture == "cnn":
-            asl.cnn_setup()
-        else:
-            asl.simple_setup()
+    if architecture == "cnn":
+        asl.cnn_setup()
+    else:
+        asl.simple_setup()
 
-        name_prefix = str(asl.noise_type) + "_" +str(asl.n_labeled) + "labels_"\
-                    + str(asl.architecture) + "_"
+    name_prefix = str(asl.noise_type) + "_" +str(asl.n_labeled) + "labels_"\
+                + str(asl.architecture) + "_"
 
-        asl.test_dual(name_prefix + "denoise")
-        asl.test_dual(name_prefix + "regularized")
-        asl.test_basic(name_prefix + "unregularized")
+    asl.test_dual(name_prefix + "denoise")
+    asl.test_dual(name_prefix + "regularized")
+    asl.test_basic(name_prefix + "unregularized")
 
 # salt_and_pepper_dense_run_experiment()
 # salt_and_pepper_cnn_run_experiment()
-salt_and_pepper_cnn_run_experiment()
+
 view_result("s&p", 10000, "cnn")
+plt.show()
 
 # asl = ASL(n_samples_train_labeled=1000, noise_type="s&p")
 # asl.cnn_setup()
