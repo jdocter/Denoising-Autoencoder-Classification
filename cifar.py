@@ -60,29 +60,18 @@ def add_noise(x_list, noise_type):
     elif noise_type == 'blackout':
         x_list *= np.stack([np.random.uniform(size=(x_list.shape[:-1])) < 0.3]*3, axis=3)
 
+class_acc_fig = plt.figure()
+plt.title("Classification accuracy over time")
+plt.legend(['train_accuracy', 'val_accuracy'], loc='upper right')
+plt.xlabel('epoch')
+plt.ylabel('accuracy')
+
 def plot_history(history, dual, model_name):
     print(history.keys())
     if dual:
-        fig, axs = plt.subplots(1, 3)
-        axs[0].set_title("{}: reconstruction error over time".format(model_name))
-        axs[0].plot(history['reconstruction_mean_squared_error'])
-        axs[0].plot(history['val_reconstruction_mean_squared_error'])
-        axs[0].legend(['train_reconstruction_mse', 'val_reconstruction_mse'], loc='upper right')
-        axs[0].set(xlabel='epoch', ylabel='error')
-
-        axs[1].figure()
-        axs[1].set_title("{}: classification loss over time".format(model_name))
-        axs[1].plot(history['loss'])
-        axs[1].plot(history['val_loss'])
-        axs[1].legend(['train_loss', 'val_loss'], loc='upper right')
-        axs[1].set(xlabel='epoch', ylabel='accuracy')
-
-        axs[2].figure()
-        axs[2].set_title("{}: classification error over time".format(model_name))
-        axs[2].plot(history['class_acc'])
-        axs[2].plot(history['val_class_acc'])
-        axs[2].legend(['train_accuracy', 'val_accuracy'], loc='upper right')
-        axs[2].set(xlabel='epoch', ylabel='accuracy')
+        plt.figure(class_acc_fig.number)
+        plt.plot(history['class_acc'])
+        plt.plot(history['val_class_acc'])
     else:
         plt.figure()
         plt.title("{}: classification loss over time".format(model_name))
@@ -92,13 +81,9 @@ def plot_history(history, dual, model_name):
         plt.ylabel('accuracy')
         plt.xlabel('epoch')
 
-        plt.figure()
-        plt.title("{}: classification error over time".format(model_name))
+        plt.figure(class_acc_fig.number)
         plt.plot(history['acc'])
         plt.plot(history['val_acc'])
-        plt.legend(['train_accuracy', 'val_accuracy'], loc='upper right')
-        plt.ylabel('accuracy')
-        plt.xlabel('epoch')
 
 class ASL:
     """
