@@ -21,6 +21,9 @@ def show_image(image):
     plt.figure()
     plt.imshow(image.reshape(32, 32, 3), cmap='Greys')
 
+def save_quad_image(image, file_name):
+    plt.imsave(file_name, image.reshape(128, 32, 3))
+
 def save_results(description, n_labeled, class_acc, n_unlabeled=None, reg_acc = None):
     with open("results.csv",'a') as results:
         results.write("{}, {}, {}, {}, {}\n".format(description,n_labeled, class_acc, n_unlabeled, reg_acc))
@@ -49,8 +52,8 @@ def save_model_with_history(model, history_dict, name):
     save_model(model, name)
     json.dump(history_dict, open("models/" + name + "_history.json", 'w'))
 
-def load_model_with_history(name):
-    return load_model(name), json.load(open("models/" + name + "_history.json"))
+def load_history(name):
+    return json.load(open("models/" + name + "_history.json"))
 
 def add_noise(x_list, noise_type):
     # mask over random pixels
@@ -60,30 +63,29 @@ def add_noise(x_list, noise_type):
     elif noise_type == 'blackout':
         x_list *= np.stack([np.random.uniform(size=(x_list.shape[:-1])) < 0.3]*3, axis=3)
 
-class_acc_fig = plt.figure()
-plt.title("Classification accuracy over time")
-plt.legend(['train_accuracy', 'val_accuracy'], loc='upper right')
-plt.xlabel('epoch')
-plt.ylabel('accuracy')
 
-def plot_history(history, dual, model_name):
-    print(history.keys())
-    if dual:
-        plt.figure(class_acc_fig.number)
-        plt.plot(history['class_acc'])
-        plt.plot(history['val_class_acc'])
-    else:
-        plt.figure()
-        plt.title("{}: classification loss over time".format(model_name))
-        plt.plot(history['acc'])
-        plt.plot(history['val_acc'])
-        plt.legend(['train_accuracy', 'val_accuracy'], loc='upper right')
-        plt.ylabel('accuracy')
-        plt.xlabel('epoch')
+def plot_history(history, class_acc_ax=None, rec_loss_fig=None):
+    if class_acc_ax is not None:
+        if "class_acc" in history.keys():
+            class_acc_ax.plot(history['class_acc'], color='C0', linestyle='-', label='train_acc_regularized')
+            class_acc_ax.plot(history['val_class_acc'], color='C0', linestyle='--', label='val_acc_regularized')
+            print("Regularized")
+            print(history['val_class_acc'][-1] * 100, np.std(history['val_class_acc'][-5:]) * 100)
+        else:
+            class_acc_ax.plot(history['acc'], color='C1',linestyle='-', label='train_acc_unregularized')
+            class_acc_ax.plot(history['val_acc'], color='C1',linestyle='--', label='val_acc_unregularized')
+            print("Unregularized")
+            print(history['val_acc'][-1] * 100, np.std(history['val_acc'][-5:]) * 100)
 
-        plt.figure(class_acc_fig.number)
-        plt.plot(history['acc'])
-        plt.plot(history['val_acc'])
+    if rec_loss_fig is not None:
+        plt.figure(rec_loss_fig.number)
+        plt.plot(history['reconstruction_mean_squared_error'],
+                color='C0', linestyle='-', label='train_rec_loss')
+        plt.plot(history['val_reconstruction_mean_squared_error'],
+                color='C0', linestyle='--', label='val_rec_loss')
+
+        # print(history['reconstruction_mean_squared_error'][-1])
+        # print(history['val_reconstruction_mean_squared_error'][-1])
 
 class ASL:
     """
@@ -355,7 +357,7 @@ class ASL:
 
     def test_dual(self, model_name):
         # Tests a model with two outputs (sometimes called with a denoiser, so no classifications)
-        model, history = load_model_with_history(model_name)
+        model = load_model(model_name)
 
         model.compile(loss={'class' : self.zero_loss, 'reconstruction' : 'mse'},
                       optimizer=keras.optimizers.Adam(),
@@ -375,17 +377,19 @@ class ASL:
         for metric_name, value in zip(model.metrics_names, score):
             print(metric_name + ":", value)
 
-        print("Showing example denoising of images ... ")
-        example_output = model.predict(self.x_test_noisy[3:4])
-        show_image(self.x_test[3])
-        show_image(self.x_test_noisy[3])
-        show_image(example_output[1])
-
-        plot_history(history, True, model_name)
+        if "denoise" in model_name:
+            print("Showing example denoising of images ... ")
+            example_output = model.predict(self.x_test_noisy[10:14])
+            save_quad_image(self.x_test[10:14],
+                    "quad_original.png".format(self.noise_type))
+            save_quad_image(self.x_test_noisy[10:14],
+                    "quad_{}.png".format(self.noise_type, self.architecture))
+            save_quad_image(example_output[1],
+                    "quad_{}_{}_rec.png".format(self.noise_type, self.architecture))
 
     def test_basic(self, model_name):
         # Tests a model with two outputs (sometimes called with a denoiser, so no classifications)
-        model, history = load_model_with_history(model_name)
+        model = load_model(model_name)
 
         model.compile(loss='categorical_crossentropy',
                       optimizer=keras.optimizers.Adam(),
@@ -403,8 +407,6 @@ class ASL:
         score = model.evaluate(self.x_test_noisy, self.y_test, verbose=0)
         for metric_name, value in zip(model.metrics_names, score):
             print(metric_name + ":", value)
-
-        plot_history(history, False, model_name)
 
     # x_test = x_test[:10000,:,:,:]
     # y_test = y_test[:10000,:]
@@ -446,28 +448,66 @@ def blackout_cnn_run_experiment():
 
 """ Functions to visualize results """
 
-def view_result(noise_type, n_train_samples, architecture):
-    """ Generates fully-connected models which demonstrate improvement for salt and pepper noise """
-    print("{} {} experiment with {} labeled training samples".format(noise_type, architecture, n_train_samples))
-    asl = ASL(n_samples_train_labeled=n_train_samples, noise_type=noise_type)
+def evaluate_models(noise_type, n_labeled, architecture):
+    name_prefix = str(noise_type) + "_" +str(n_labeled) + "labels_"\
+                + str(architecture) + "_"
 
+    asl = ASL(n_samples_train_labeled=n_labeled, noise_type=noise_type)
     if architecture == "cnn":
         asl.cnn_setup()
     else:
         asl.simple_setup()
 
-    name_prefix = str(asl.noise_type) + "_" +str(asl.n_labeled) + "labels_"\
-                + str(asl.architecture) + "_"
-
     asl.test_dual(name_prefix + "denoise")
     asl.test_dual(name_prefix + "regularized")
     asl.test_basic(name_prefix + "unregularized")
 
+def view_result(noise_type, n_labeled, architecture, ax):
+    print("{} {} experiment with {} labeled training samples".format(noise_type, architecture, n_labeled))
+
+    name_prefix = str(noise_type) + "_" +str(n_labeled) + "labels_"\
+                + str(architecture) + "_"
+
+    plot_history(load_history(name_prefix + "regularized"), class_acc_ax=ax)
+    plot_history(load_history(name_prefix + "unregularized"), class_acc_ax=ax)
+    ax.set_title("{} noise\n{} labeled, {} network".format(
+        noise_type, n_labeled, architecture))
+    ax.set(xlabel='epoch', ylabel='accuracy')
+
+    my_fig = plt.figure()
+    plt.title("Reconstruction MSE over epochs\n{} noise, {} network".format(
+        noise_type, architecture))
+    plot_history(load_history(name_prefix + "denoise"), rec_loss_fig=my_fig)
+    plt.legend()
+    plt.savefig("{}_{}_rec_loss_graph.png".format(noise_type, architecture))
+
 # salt_and_pepper_dense_run_experiment()
 # salt_and_pepper_cnn_run_experiment()
 
-view_result("s&p", 10000, "cnn")
-plt.show()
+# evaluate_models("s&p", 10000, "dense")
+# evaluate_models("s&p", 10000, "cnn")
+# evaluate_models("blackout", 10000, "dense")
+# evaluate_models("blackout", 10000, "cnn")
+
+def gen_figures():
+    final_fig, axes = plt.subplots(nrows=4, ncols=3, figsize=(13,13))
+    plt.title("Classification accuracy over epochs")
+    plt.subplots_adjust(hspace=0.6, wspace=0.2)
+    row = 0
+    for noise_type in ("s&p", "blackout"):
+        view_result(noise_type, 50000, "dense", axes[row,0])
+        view_result(noise_type, 10000, "dense", axes[row,1])
+        view_result(noise_type, 1000, "dense", axes[row,2])
+        row += 1
+        view_result(noise_type, 50000, "cnn", axes[row,0])
+        view_result(noise_type, 10000, "cnn", axes[row,1])
+        view_result(noise_type, 1000, "cnn", axes[row,2])
+        row += 1
+    axes[0,2].legend()
+    plt.figure(final_fig.number)
+    plt.savefig("all_acc_graph.png")
+
+gen_figures()
 
 # asl = ASL(n_samples_train_labeled=1000, noise_type="s&p")
 # asl.cnn_setup()
