@@ -481,14 +481,19 @@ def view_result(noise_type, n_labeled, architecture, ax):
     plt.legend()
     plt.savefig("{}_{}_rec_loss_graph.png".format(noise_type, architecture))
 
+# Uncomment to re-train models
 # salt_and_pepper_dense_run_experiment()
 # salt_and_pepper_cnn_run_experiment()
+# blackout_dense_run_experiment()
+# blackout_cnn_run_experiment()
 
+# Uncomment to print validation accuracy and reconstruction loss of models
 # evaluate_models("s&p", 10000, "dense")
 # evaluate_models("s&p", 10000, "cnn")
 # evaluate_models("blackout", 10000, "dense")
 # evaluate_models("blackout", 10000, "cnn")
 
+# Generates learning curves of various models
 def gen_figures():
     final_fig, axes = plt.subplots(nrows=4, ncols=3, figsize=(13,13))
     plt.title("Classification accuracy over epochs")
