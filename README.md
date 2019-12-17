@@ -220,6 +220,7 @@ We also discovered that training the classification output of the DAC model requ
 *Table 2: Validation Accuracy of Classification Output for DAC and Unregularized models*
 
 <img src="images/all_acc_graph.png" /> 
+
 *Figure 3: the training accuracy (solid line) of the unregularized classifiers, shown in orange, increases very quickly, often reaching 100\% before 20 epochs, but the validation accuracy (dotted line) does not follow, indicating significant overfitting and poor generalization. Due to the additional denoising task, DAC (shown in blue) achieves better validation accuracy than the unregularized classifier, even when training accuracy favors the latter. Especially on the CNN architecture, the divergence of the training and validation accuracies is much slower, which indicates the algorithm has better generalization. Overall, CNN’s yield much better generalization results than dense single layer networks for both the regularized and unregularized models.*
 
 
