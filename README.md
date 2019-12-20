@@ -63,7 +63,7 @@ At a high level, DAC consists of two structural components: the denoising auto e
 Denoising Autoencoder
 ---------------------
 
-The denoising autoencoder (figure \[fig:autoencoder\]) has similar structure to normal autoencoders, but instead of focusing on pure reconstruction of input data, it maps noisy inputs to their “clean” counterparts. In general, autoencoders consist of an encoder (*Φ* : *X* → *Z*) and a decoder (*Ψ* : *Z* → *X*) where *Φ* and *Ψ* are inversely related to eachother. They first map an input *x* ∈ *X* ∈ ℝ<sup>*d*</sup> to an intermediate representation *z* ∈ *Z* ∈ ℝ<sup>*d*</sup>′ of reduced dimensionality (*d*′&lt;*d*) via *Φ*. This intermediate representation is then “reconstructed“ back to a point *x*′ in the input space, and the difference between *x* and *x*′ is measured using some loss function *L*. In a denoising autoencoder (Vincent et al), a noisy representation of *x*, *x̄*, is fed into the network yielding *x̄*′, and then compared *x̄*′ to the original ”clean" input data point *x*. One important/interesting side effect of this setup is that unlike the basic autoencoder, this denoising autoencoder cannot learn the identity and thus it is not necessary that *d*′&lt;*d*.
+The denoising autoencoder has similar structure to normal autoencoders, but instead of focusing on pure reconstruction of input data, it maps noisy inputs to their “clean” counterparts. In general, autoencoders consist of an encoder (*Φ* : *X* → *Z*) and a decoder (*Ψ* : *Z* → *X*) where *Φ* and *Ψ* are inversely related to eachother. They first map an input *x* ∈ *X* ∈ ℝ<sup>*d*</sup> to an intermediate representation *z* ∈ *Z* ∈ ℝ<sup>*d*</sup>′ of reduced dimensionality (*d*′&lt;*d*) via *Φ*. This intermediate representation is then “reconstructed“ back to a point *x*′ in the input space, and the difference between *x* and *x*′ is measured using some loss function *L*. In a denoising autoencoder (Vincent et al), a noisy representation of *x*, *x̄*, is fed into the network yielding *x̄*′, and then compared *x̄*′ to the original ”clean" input data point *x*. One important/interesting side effect of this setup is that unlike the basic autoencoder, this denoising autoencoder cannot learn the identity and thus it is not necessary that *d*′&lt;*d*.
 
 For training purposes, we considered two autoencoder architecures: a dense single layer model and a deep convolutional model. In case of the former, both *Φ* and *Ψ* consist of one fully connected layer. We note that disregarding noise, this type of architecture trains weights that span the same subspace as PCA. Thus, to incorporate more complexity, we also considered a deep convolutional architecture, where *Φ* and *Ψ* consists of several mirroring convolutional, batch-normalization, and max-pooling/up-sampling layers. For both architectures we use mean squared error as the loss function difference between *x̄*′ and *x* and update weights.
 
@@ -73,7 +73,7 @@ For training purposes, we considered two autoencoder architecures: a dense singl
 Classifier
 ----------
 
-The classifier *θ* is built off of the intermediate representation *z* of the denoising autoencoder as shown in Figure \[fig:multitask\]. After encoding noisy input, a separate task is added (classification) that contributes the encoder weights independently from the decoder. Usually, this task consists of one fully connected layer that produces a prediction *y*′∈*Y*. Ultimately, both the classification loss (squared loss) and reconstruction loss propagate backwards and contribute to encoder weights.
+The classifier *θ* is built off of the intermediate representation *z* of the denoising autoencoder as shown in. After encoding noisy input, a separate task is added (classification) that contributes the encoder weights independently from the decoder. Usually, this task consists of one fully connected layer that produces a prediction *y*′∈*Y*. Ultimately, both the classification loss (squared loss) and reconstruction loss propagate backwards and contribute to encoder weights.
 
 <img src="images/full_model.png" />
 
@@ -148,7 +148,7 @@ To simulate lower-quality or corrupted training data, we introduce loss to the i
 
 -   Blackout: 30% of the pixels are turned to black (0, 0, 0).
 
-Examples of the two types of input distortion can be seen in Figure \[fig:denoise\_examples\].
+Examples of the two types of input distortion can be seen in Figure 1.
 
 Number of Labeled Training Samples
 ----------------------------------
